@@ -1,0 +1,21 @@
+{
+  "name": "bonkilingo-backend",
+  "version": "1.0.0",
+  "description": "Standalone backend API for Bonkilingo (Web + Flutter apps)",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "keywords": ["bonkilingo", "api", "openai", "language-learning"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "openai": "^4.20.1"
+  }
+}
+
