@@ -1,21 +1,24 @@
 {
   "name": "bonkilingo-backend",
-  "version": "1.0.0",
-  "description": "Standalone backend API for Bonkilingo (Web + Flutter apps)",
+  "version": "2.0.0",
+  "description": "Standalone backend API for Bonkilingo (Web + Flutter apps) with Solana rewards",
   "main": "index.js",
   "type": "module",
   "scripts": {
     "start": "node index.js",
     "dev": "node --watch index.js"
   },
-  "keywords": ["bonkilingo", "api", "openai", "language-learning"],
+  "keywords": ["bonkilingo", "api", "openai", "language-learning", "solana", "bonk", "crypto-rewards"],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "openai": "^4.20.1"
+    "openai": "^4.20.1",
+    "@supabase/supabase-js": "^2.39.0",
+    "@solana/web3.js": "^1.87.6",
+    "@solana/spl-token": "^0.3.9",
+    "bs58": "^5.0.0"
   }
 }
-
