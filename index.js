@@ -28,7 +28,12 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
+// Health check endpoint (for deployment verification)
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
@@ -183,12 +188,12 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server
-app.listen(port, '0.0.0.0', () => {
+// Start server with error handling
+const server = app.listen(port, '0.0.0.0', () => {
   console.log('');
   console.log('🚀 Bonkilingo Backend API v2.0');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`✓ Server running on http://localhost:${port}`);
+  console.log(`✓ Server running on http://0.0.0.0:${port}`);
   console.log(`✓ OpenAI API Key: ${process.env.OPENAI_API_KEY ? '✓ Set' : '✗ Missing'}`);
   console.log(`✓ Supabase: ${process.env.SUPABASE_URL ? '✓ Configured' : '✗ Missing'}`);
   console.log(`✓ Solana Withdrawals: ${solanaInitialized ? '✓ Enabled' : '✗ Disabled (no hot wallet)'}`);
@@ -208,4 +213,26 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`  GET  http://localhost:${port}/api/rewards/status`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('');
+});
+
+// Handle server errors
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${port} is already in use`);
+    process.exit(1);
+  } else {
+    console.error('❌ Server error:', error);
+    process.exit(1);
+  }
+});
+
+// Handle uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('❌ Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
 });
