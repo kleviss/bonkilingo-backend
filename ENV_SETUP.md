@@ -30,3 +30,4 @@ PORT=3001
 
 ⚠️ **NEVER commit your `.env` file or expose your hot wallet private key!**
 
+
