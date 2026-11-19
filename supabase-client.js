@@ -7,17 +7,24 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseServiceKey);
+
+if (!isSupabaseConfigured) {
   console.warn("⚠️ Supabase credentials not set - database features disabled");
 }
 
-// Create Supabase client with service role key (bypasses RLS)
-export const supabase = createClient(supabaseUrl || "", supabaseServiceKey || "", {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
+// Create Supabase client with service role key (bypasses RLS).
+// createClient throws without a URL, which would take the AI endpoints down
+// with it, so without credentials there is no client and the rewards routes
+// answer 503 instead.
+export const supabase = isSupabaseConfigured
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    })
+  : null;
 
 // =====================================================
 // Reward Configuration Cache
