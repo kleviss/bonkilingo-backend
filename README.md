@@ -57,9 +57,11 @@ Correct text with AI.
 {
   "text": "i dont no if this work",
   "language": "english",
-  "model": "gpt-3.5-turbo"
+  "model": "gpt-4o-mini"
 }
 ```
+
+`model` is optional. Supported values are `gpt-4o-mini` (the default) and `gpt-4o`; a request that names any other model, including a retired one, is answered with the default.
 
 **Response:**
 ```json
@@ -80,10 +82,12 @@ Generate lessons or chat responses.
       "content": "I need vocabulary for ordering food at a restaurant"
     }
   ],
-  "model": "gpt-3.5-turbo",
+  "model": "gpt-4o-mini",
   "systemPrompt": "You are a helpful language tutor..."
 }
 ```
+
+`model` is optional and handled the same way as in `/api/correct`.
 
 **Response:**
 ```json
