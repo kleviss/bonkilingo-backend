@@ -15,6 +15,17 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Models a client may ask for, and the one used when it asks for none.
+// OpenAI retires models over time, and app builds already installed on
+// people's phones keep sending the model name they shipped with. A request
+// naming anything not listed here gets the default instead of an error.
+const DEFAULT_MODEL = 'gpt-4o-mini';
+const SUPPORTED_MODELS = new Set(['gpt-4o-mini', 'gpt-4o']);
+
+function resolveModel(model) {
+  return SUPPORTED_MODELS.has(model) ? model : DEFAULT_MODEL;
+}
+
 // Initialize Solana (for crypto rewards)
 const solanaInitialized = solanaService.initHotWallet();
 
@@ -66,7 +77,8 @@ app.get('/', (req, res) => {
 // Text Correction Endpoint
 app.post('/api/correct', async (req, res) => {
   try {
-    const { text, model = 'gpt-3.5-turbo', language } = req.body;
+    const { text, language } = req.body;
+    const model = resolveModel(req.body.model);
 
     if (!text) {
       return res.status(400).json({ error: 'No text provided' });
@@ -106,7 +118,8 @@ app.post('/api/correct', async (req, res) => {
 // Chat/Lesson Generation Endpoint
 app.post('/api/chat', async (req, res) => {
   try {
-    const { messages, model = 'gpt-3.5-turbo', systemPrompt } = req.body;
+    const { messages, systemPrompt } = req.body;
+    const model = resolveModel(req.body.model);
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Messages array required' });
@@ -148,7 +161,7 @@ app.post('/api/detect-language', async (req, res) => {
     console.log(`Detecting language for: "${text.substring(0, 30)}..."`);
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: DEFAULT_MODEL,
       messages: [
         {
           role: 'system',
