@@ -1,30 +1,14 @@
+// Loads .env before the modules below read process.env as they are imported.
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import OpenAI from 'openai';
+import { DEFAULT_MODEL, completeChat, isOpenAIConfigured, resolveModel } from './ai.js';
 import rewardsRoutes from './rewards-routes.js';
 import { solanaService } from './solana.js';
-
-dotenv.config();
+import { isSupabaseConfigured } from './supabase-client.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
-
-// Initialize OpenAI
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// Models a client may ask for, and the one used when it asks for none.
-// OpenAI retires models over time, and app builds already installed on
-// people's phones keep sending the model name they shipped with. A request
-// naming anything not listed here gets the default instead of an error.
-const DEFAULT_MODEL = 'gpt-4o-mini';
-const SUPPORTED_MODELS = new Set(['gpt-4o-mini', 'gpt-4o']);
-
-function resolveModel(model) {
-  return SUPPORTED_MODELS.has(model) ? model : DEFAULT_MODEL;
-}
 
 // Initialize Solana (for crypto rewards)
 const solanaInitialized = solanaService.initHotWallet();
@@ -51,8 +35,8 @@ app.get('/', (req, res) => {
     message: 'Bonkilingo Backend API',
     version: '2.0.0',
     features: {
-      ai: !!process.env.OPENAI_API_KEY,
-      rewards: true,
+      ai: isOpenAIConfigured(),
+      rewards: isSupabaseConfigured,
       withdrawals: solanaInitialized,
     },
     endpoints: [
@@ -88,7 +72,7 @@ app.post('/api/correct', async (req, res) => {
 
     const systemPrompt = 'You are a professional language tutor. You receive a piece of text from a learner and must return a corrected version that fixes grammar, spelling, punctuation, and style while preserving the original meaning. Return ONLY the corrected text, no additional commentary.';
 
-    const completion = await openai.chat.completions.create({
+    const answer = await completeChat({
       model,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -97,15 +81,14 @@ app.post('/api/correct', async (req, res) => {
       temperature: 0.2,
     });
 
-    const corrected = completion.choices[0].message?.content?.trim();
-
     // Calculate word count for reward calculation
     const wordCount = text.trim().split(/\s+/).length;
 
-    console.log(`✓ Correction complete (${wordCount} words)`);
+    console.log(`✓ Correction complete (${wordCount} words, ${answer.model})`);
     res.json({ 
-      corrected,
+      corrected: answer.text,
       wordCount, // Include for client-side reward tracking
+      model: answer.model, // The model that answered, which is a backup if the requested one failed
     });
   } catch (error) {
     console.error('Error in /api/correct:', error.message);
@@ -131,16 +114,14 @@ app.post('/api/chat', async (req, res) => {
       ? [{ role: 'system', content: systemPrompt }, ...messages]
       : messages;
 
-    const completion = await openai.chat.completions.create({
+    const answer = await completeChat({
       model,
       messages: chatMessages,
       temperature: 0.7,
     });
 
-    const reply = completion.choices[0].message?.content?.trim();
-
-    console.log(`✓ Lesson/chat response generated`);
-    res.json({ reply });
+    console.log(`✓ Lesson/chat response generated (${answer.model})`);
+    res.json({ reply: answer.text, model: answer.model });
   } catch (error) {
     console.error('Error in /api/chat:', error.message);
     res.status(500).json({ 
@@ -160,7 +141,7 @@ app.post('/api/detect-language', async (req, res) => {
 
     console.log(`Detecting language for: "${text.substring(0, 30)}..."`);
 
-    const completion = await openai.chat.completions.create({
+    const answer = await completeChat({
       model: DEFAULT_MODEL,
       messages: [
         {
@@ -173,10 +154,9 @@ app.post('/api/detect-language', async (req, res) => {
         },
       ],
       temperature: 0.1,
-      max_tokens: 10,
     });
 
-    const language = completion.choices[0].message?.content?.trim().toLowerCase();
+    const language = answer.text.toLowerCase();
 
     console.log(`✓ Detected language: ${language}`);
     res.json({ language: language || 'unknown' });
@@ -201,43 +181,49 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start server with error handling
-const server = app.listen(port, '0.0.0.0', () => {
-  console.log('');
-  console.log('🚀 Bonkilingo Backend API v2.0');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log(`✓ Server running on http://0.0.0.0:${port}`);
-  console.log(`✓ OpenAI API Key: ${process.env.OPENAI_API_KEY ? '✓ Set' : '✗ Missing'}`);
-  console.log(`✓ Supabase: ${process.env.SUPABASE_URL ? '✓ Configured' : '✗ Missing'}`);
-  console.log(`✓ Solana Withdrawals: ${solanaInitialized ? '✓ Enabled' : '✗ Disabled (no hot wallet)'}`);
-  console.log('');
-  console.log('AI Endpoints:');
-  console.log(`  POST http://localhost:${port}/api/correct`);
-  console.log(`  POST http://localhost:${port}/api/chat`);
-  console.log(`  POST http://localhost:${port}/api/detect-language`);
-  console.log('');
-  console.log('Rewards Endpoints:');
-  console.log(`  GET  http://localhost:${port}/api/rewards/balance`);
-  console.log(`  GET  http://localhost:${port}/api/rewards/history`);
-  console.log(`  POST http://localhost:${port}/api/rewards/earn`);
-  console.log(`  POST http://localhost:${port}/api/rewards/wallet`);
-  console.log(`  POST http://localhost:${port}/api/rewards/withdraw`);
-  console.log(`  GET  http://localhost:${port}/api/rewards/withdrawals`);
-  console.log(`  GET  http://localhost:${port}/api/rewards/status`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('');
-});
+// On Vercel the exported app is the request handler and nothing listens on a
+// port. Everywhere else (local, Docker, a VPS) start the server as usual.
+export default app;
 
-// Handle server errors
-server.on('error', (error) => {
-  if (error.code === 'EADDRINUSE') {
-    console.error(`❌ Port ${port} is already in use`);
-    process.exit(1);
-  } else {
-    console.error('❌ Server error:', error);
-    process.exit(1);
-  }
-});
+if (!process.env.VERCEL) {
+  // Start server with error handling
+  const server = app.listen(port, '0.0.0.0', () => {
+    console.log('');
+    console.log('🚀 Bonkilingo Backend API v2.0');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`✓ Server running on http://0.0.0.0:${port}`);
+    console.log(`✓ OpenAI API Key: ${isOpenAIConfigured() ? '✓ Set' : '✗ Missing'}`);
+    console.log(`✓ Supabase: ${isSupabaseConfigured ? '✓ Configured' : '✗ Missing'}`);
+    console.log(`✓ Solana Withdrawals: ${solanaInitialized ? '✓ Enabled' : '✗ Disabled (no hot wallet)'}`);
+    console.log('');
+    console.log('AI Endpoints:');
+    console.log(`  POST http://localhost:${port}/api/correct`);
+    console.log(`  POST http://localhost:${port}/api/chat`);
+    console.log(`  POST http://localhost:${port}/api/detect-language`);
+    console.log('');
+    console.log('Rewards Endpoints:');
+    console.log(`  GET  http://localhost:${port}/api/rewards/balance`);
+    console.log(`  GET  http://localhost:${port}/api/rewards/history`);
+    console.log(`  POST http://localhost:${port}/api/rewards/earn`);
+    console.log(`  POST http://localhost:${port}/api/rewards/wallet`);
+    console.log(`  POST http://localhost:${port}/api/rewards/withdraw`);
+    console.log(`  GET  http://localhost:${port}/api/rewards/withdrawals`);
+    console.log(`  GET  http://localhost:${port}/api/rewards/status`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('');
+  });
+
+  // Handle server errors
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`❌ Port ${port} is already in use`);
+      process.exit(1);
+    } else {
+      console.error('❌ Server error:', error);
+      process.exit(1);
+    }
+  });
+}
 
 // Handle uncaught errors
 process.on('uncaughtException', (error) => {

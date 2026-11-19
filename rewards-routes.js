@@ -3,9 +3,11 @@
 // =====================================================
 
 import express from "express";
+import { waitUntil } from "@vercel/functions";
 import { solanaService } from "./solana.js";
 import {
   supabase,
+  isSupabaseConfigured,
   getRewardConfig,
   addReward,
   getUserBalance,
@@ -19,6 +21,16 @@ import {
 } from "./supabase-client.js";
 
 const router = express.Router();
+
+// Every rewards route reads or writes the database.
+router.use((req, res, next) => {
+  if (!isSupabaseConfigured) {
+    return res.status(503).json({
+      error: "Rewards are not configured: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not set on the server",
+    });
+  }
+  next();
+});
 
 // =====================================================
 // Middleware: Verify user authentication
@@ -277,8 +289,11 @@ router.post("/withdraw", requireAuth, async (req, res) => {
     // Record for rate limiting
     await recordRateLimitAction(req.user.id, "withdrawal");
 
-    // Process withdrawal immediately (or queue for batch processing)
-    processWithdrawal(request.request);
+    // Process the withdrawal after responding. On a serverless host the
+    // function can be frozen as soon as the response is sent, which would
+    // strand a transfer half-way; waitUntil keeps it alive until this
+    // finishes. On a normal server it changes nothing.
+    waitUntil(processWithdrawal(request.request));
 
     res.json({
       success: true,
