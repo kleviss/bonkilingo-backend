@@ -6,15 +6,31 @@ import { DEFAULT_MODEL, completeChat, isOpenAIConfigured, resolveModel } from '.
 import rewardsRoutes from './rewards-routes.js';
 import { solanaService } from './solana.js';
 import { isSupabaseConfigured } from './supabase-client.js';
+import { aiGuard, cleanLanguage, corsOrigins, limits } from './ai-guard.js';
 
 const app = express();
 const port = process.env.PORT || 3001;
+
+// Behind Vercel's (or any) reverse proxy, req.ip must come from the proxy's
+// X-Forwarded-For entry, not the proxy itself, or every anonymous caller
+// shares one rate limit bucket. TRUST_PROXY overrides (e.g. "2" for two hops).
+// Express reads a string as an address list, so "1" must become the number 1.
+function trustProxySetting(value) {
+  if (value === undefined || value === '') return process.env.VERCEL ? 1 : false;
+  if (/^\d+$/.test(value)) return Number(value);
+  if (value === 'true' || value === 'false') return value === 'true';
+  return value; // e.g. "loopback" or a list of addresses
+}
+app.set('trust proxy', trustProxySetting(process.env.TRUST_PROXY));
 
 // Initialize Solana (for crypto rewards)
 const solanaInitialized = solanaService.initHotWallet();
 
 // Middleware
-app.use(cors()); // Allow all origins (configure for production!)
+// The mobile app doesn't need CORS (only browsers enforce it), and the web app
+// has its own API routes, so no browser origin is allowed unless listed in
+// CORS_ORIGINS (comma-separated).
+app.use(cors({ origin: corsOrigins() }));
 app.use(express.json());
 
 // Request logging middleware
@@ -59,18 +75,27 @@ app.get('/', (req, res) => {
 // =====================================================
 
 // Text Correction Endpoint
-app.post('/api/correct', async (req, res) => {
+// User text is never logged: it can be a private message, and the keyboard
+// extension will send text typed into other apps.
+app.post('/api/correct', ...aiGuard('correct'), async (req, res) => {
   try {
-    const { text, language } = req.body;
+    const { text } = req.body;
     const model = resolveModel(req.body.model);
+    const language = cleanLanguage(req.body.language);
 
-    if (!text) {
+    if (typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'No text provided' });
     }
+    if (text.length > limits.maxTextChars) {
+      return res.status(413).json({ error: `Text is too long (maximum ${limits.maxTextChars} characters)` });
+    }
 
-    console.log(`Correcting text (${language}): "${text.substring(0, 50)}..."`);
+    console.log(`Correcting text (${language ?? 'auto'}, ${text.length} chars, ${req.user ? 'user' : 'anonymous'})`);
 
-    const systemPrompt = 'You are a professional language tutor. You receive a piece of text from a learner and must return a corrected version that fixes grammar, spelling, punctuation, and style while preserving the original meaning. Return ONLY the corrected text, no additional commentary.';
+    const languageRule = language
+      ? `The text is written in ${language}. Return the corrected text in ${language}; never translate it.`
+      : 'Return the corrected text in the same language as the input; never translate it.';
+    const systemPrompt = `You are a professional language tutor. You receive a piece of text from a learner and must return a corrected version that fixes grammar, spelling, punctuation, and style while preserving the original meaning. ${languageRule} Return ONLY the corrected text, no additional commentary.`;
 
     const answer = await completeChat({
       model,
@@ -99,13 +124,18 @@ app.post('/api/correct', async (req, res) => {
 });
 
 // Chat/Lesson Generation Endpoint
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', ...aiGuard('chat'), async (req, res) => {
   try {
     const { messages, systemPrompt } = req.body;
     const model = resolveModel(req.body.model);
 
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: 'Messages array required' });
+    }
+    // Explanation chats resend the whole conversation, so allow a few texts' worth.
+    const totalChars = JSON.stringify(messages).length + (systemPrompt?.length ?? 0);
+    if (totalChars > limits.maxTextChars * 4) {
+      return res.status(413).json({ error: 'Conversation is too long' });
     }
 
     console.log(`Generating lesson/chat response`);
@@ -131,15 +161,18 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // Language Detection Endpoint
-app.post('/api/detect-language', async (req, res) => {
+app.post('/api/detect-language', ...aiGuard('detect', { multiplier: 5 }), async (req, res) => {
   try {
     const { text } = req.body;
 
-    if (!text) {
+    if (typeof text !== 'string' || !text.trim()) {
       return res.status(400).json({ error: 'No text provided' });
     }
+    if (text.length > limits.maxTextChars) {
+      return res.status(413).json({ error: `Text is too long (maximum ${limits.maxTextChars} characters)` });
+    }
 
-    console.log(`Detecting language for: "${text.substring(0, 30)}..."`);
+    console.log(`Detecting language (${text.length} chars)`);
 
     const answer = await completeChat({
       model: DEFAULT_MODEL,
