@@ -9,6 +9,8 @@
 //   that user and limited per user in the database (reward_rate_limits, the
 //   same table the rewards routes use), so the limit holds across serverless
 //   instances. A token that does not verify is rejected, not downgraded.
+// - The iOS keyboard sends a keyboard token (`Bearer kb_...`, see
+//   keyboard-tokens.js) instead; it maps to the same user and the same limits.
 // - A request without a token is anonymous. The app still lets signed-out
 //   users try corrections, so anonymous requests are allowed but limited per
 //   IP address. That count lives in memory, so on a serverless host it is per
@@ -16,6 +18,7 @@
 //   sign-in for every AI request.
 
 import { supabase, isSupabaseConfigured, checkRateLimit, recordRateLimitAction } from "./supabase-client.js";
+import { isKeyboardToken, userForKeyboardToken } from "./keyboard-tokens.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -32,7 +35,7 @@ export const limits = {
 
 let warnedNoSupabase = false;
 
-/** Sets req.user when a valid Supabase access token is sent. */
+/** Sets req.user when a valid Supabase access token or keyboard token is sent. */
 export async function identifyUser(req, res, next) {
   const header = req.headers.authorization;
   if (!header) return next();
@@ -50,11 +53,22 @@ export async function identifyUser(req, res, next) {
     return next();
   }
 
+  const token = header.substring(7);
+  if (isKeyboardToken(token)) {
+    const user = await userForKeyboardToken(token);
+    if (!user) {
+      // Revoked (signed out in the app) or unknown.
+      return res.status(401).json({ error: "Open Bonkilingo and sign in again to keep using Correct." });
+    }
+    req.user = user;
+    return next();
+  }
+
   try {
     const {
       data: { user },
       error,
-    } = await supabase.auth.getUser(header.substring(7));
+    } = await supabase.auth.getUser(token);
     if (error || !user) {
       return res.status(401).json({ error: "Your session has expired. Please sign in again." });
     }

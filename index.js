@@ -4,6 +4,7 @@ import express from 'express';
 import cors from 'cors';
 import { DEFAULT_MODEL, completeChat, isOpenAIConfigured, resolveModel } from './ai.js';
 import rewardsRoutes from './rewards-routes.js';
+import keyboardTokenRoutes from './keyboard-tokens.js';
 import { solanaService } from './solana.js';
 import { isSupabaseConfigured } from './supabase-client.js';
 import { aiGuard, cleanLanguage, corsOrigins, limits } from './ai-guard.js';
@@ -57,6 +58,8 @@ app.get('/', (req, res) => {
     },
     endpoints: [
       'POST /api/correct',
+      'POST /api/keyboard/token',
+      'DELETE /api/keyboard/token',
       'POST /api/chat', 
       'POST /api/detect-language',
       'GET  /api/rewards/balance',
@@ -205,6 +208,9 @@ app.post('/api/detect-language', ...aiGuard('detect', { multiplier: 5 }), async 
 // Rewards Routes (mounted at /api/rewards)
 // =====================================================
 app.use('/api/rewards', rewardsRoutes);
+
+// Keyboard sign-in (iOS keyboard extension): POST/DELETE /api/keyboard/token
+app.use('/api/keyboard', keyboardTokenRoutes);
 
 // =====================================================
 // Error Handling
